@@ -25,6 +25,7 @@ class TableFormatter(BaseFormatter):
         Args:
             use_colors: Enable colored output
         """
+        self.use_colors = use_colors
         self.console = Console(
             color_system="auto" if use_colors else None,
             force_terminal=use_colors
@@ -41,10 +42,10 @@ class TableFormatter(BaseFormatter):
         """
         buffer = io.StringIO()
         # Create console with same color settings
-        color_sys = "auto" if self.console._color_system else None
         temp_console = Console(
-            file=buffer, color_system=color_sys,
-            force_terminal=self.console._force_terminal
+            file=buffer,
+            color_system="auto" if self.use_colors else None,
+            force_terminal=self.use_colors
         )
         temp_console.print(renderable, soft_wrap=True)
         return buffer.getvalue().rstrip()
@@ -53,11 +54,11 @@ class TableFormatter(BaseFormatter):
         """Format function list as table."""
         result = data.get("result", [])
 
-        # Get total count from metadata
-        metadata = data.get("metadata", {})
-        total = metadata.get("size", len(result))
-        offset = metadata.get("offset", 0)
-        limit = metadata.get("limit", len(result))
+        # Accept both current top-level pagination and older metadata wrappers.
+        metadata = data.get("meta") or data.get("metadata", {})
+        total = metadata.get("total", metadata.get("size", data.get("size", len(result))))
+        offset = metadata.get("offset", data.get("offset", 0))
+        limit = metadata.get("limit", data.get("limit", len(result)))
 
         if not result:
             return self._capture("[yellow]No functions found[/yellow] (0 total)")
@@ -105,7 +106,29 @@ class TableFormatter(BaseFormatter):
     def format_decompiled_code(self, data: Dict[str, Any]) -> str:
         """Format decompiled code with syntax highlighting."""
         result = data.get("result", {})
-        code = result.get("decompiled") or result.get("ccode") or result.get("decompiled_text", "")
+        code = (result.get("decompiled") or result.get("decompilation")
+                or result.get("ccode") or result.get("decompiled_text", ""))
+        retry_recommended = bool(result.get("retry_recommended"))
+        suggested_timeout = result.get("suggested_timeout_seconds")
+        message = result.get("message")
+        decompile_error = result.get("decompile_error")
+
+        advisory_lines = []
+        if retry_recommended:
+            if message:
+                advisory_lines.append(f"// {message}")
+            if suggested_timeout:
+                advisory_lines.append(f"// Suggested timeout: {suggested_timeout}s")
+            if decompile_error:
+                advisory_lines.append(f"// Decompiler error: {decompile_error}")
+
+        if advisory_lines:
+            advisory_text = "\n".join(advisory_lines)
+            if code:
+                if advisory_text.lower() not in code.lower():
+                    code = f"{code.rstrip()}\n\n{advisory_text}"
+            else:
+                code = advisory_text
 
         if not code:
             return self._capture("[red]No decompiled code available[/red]")
@@ -151,15 +174,20 @@ class TableFormatter(BaseFormatter):
         """Format memory as hex dump."""
         result = data.get("result", {})
         addr = result.get("address", "???")
-        hex_bytes = result.get("hexBytes", "")
+        # Javalin server sends "hex" (continuous string); older builds sent
+        # "hexBytes" (space-separated pairs).
+        hex_bytes = result.get("hex") or result.get("hexBytes") or ""
 
         if not hex_bytes:
             return self._capture("[red]No memory data available[/red]")
 
-        lines = [f"[cyan]Memory at 0x{addr}:[/cyan]\n"]
+        lines = [f"[cyan]Memory at {addr}:[/cyan]\n"]
 
-        # hexBytes comes as space-separated pairs: "48 83 EC 28..."
-        byte_pairs = hex_bytes.split()
+        if " " in hex_bytes.strip():
+            byte_pairs = hex_bytes.split()
+        else:
+            cleaned = hex_bytes.strip()
+            byte_pairs = [cleaned[i:i+2] for i in range(0, len(cleaned), 2)]
 
         for i in range(0, len(byte_pairs), 16):
             chunk = byte_pairs[i:i+16]
@@ -198,12 +226,13 @@ class TableFormatter(BaseFormatter):
         table.add_column("From Function", style="dim")
 
         for xref in references:
-            from_func = ""
-            if isinstance(xref.get("from_function"), dict):
+            # XrefDto uses fromAddress/toAddress/fromFunction; accept legacy names.
+            from_func = xref.get("fromFunction") or ""
+            if not from_func and isinstance(xref.get("from_function"), dict):
                 from_func = xref["from_function"].get("name", "")
             table.add_row(
-                xref.get("from_addr", "?"),
-                xref.get("to_addr", "?"),
+                xref.get("fromAddress") or xref.get("from_addr", "?"),
+                xref.get("toAddress") or xref.get("to_addr", "?"),
                 xref.get("refType", "?"),
                 from_func
             )
@@ -230,7 +259,7 @@ class TableFormatter(BaseFormatter):
 
             table.add_row(
                 item.get("address", "?"),
-                item.get("name", ""),
+                item.get("label") or item.get("name", ""),  # DataDto field is 'label'
                 item.get("dataType", "?"),
                 str(value)
             )
@@ -362,6 +391,22 @@ class TableFormatter(BaseFormatter):
 
         return self._capture("[green]Success[/green]")
 
+    def format_analysis_status(self, data: Dict[str, Any]) -> str:
+        """Format analysis status response."""
+        result = data.get("result", {})
+        if not isinstance(result, dict):
+            return self.format_simple_result(data)
+
+        program = result.get("programName") or result.get("program") or "?"
+        is_analyzing = result.get("isAnalyzing")
+        status = "running" if is_analyzing else "idle"
+
+        lines = [
+            f"[cyan]Program:[/cyan] {program}",
+            f"[cyan]Analysis:[/cyan] {status}",
+        ]
+        return self._capture("\n".join(lines))
+
     def format_classes_list(self, data: Dict[str, Any]) -> str:
         """Format classes list as table."""
         result = data.get("result", [])
@@ -421,11 +466,12 @@ class TableFormatter(BaseFormatter):
         table.add_column("Init", style="dim")
 
         for seg in result:
+            # MemoryBlockDto serializes isRead/isWrite/isExecute/isInitialized.
             perms = ""
-            perms += "R" if seg.get("readable") else "-"
-            perms += "W" if seg.get("writable") else "-"
-            perms += "X" if seg.get("executable") else "-"
-            init = "init" if seg.get("initialized") else "uninit"
+            perms += "R" if seg.get("isRead", seg.get("readable")) else "-"
+            perms += "W" if seg.get("isWrite", seg.get("writable")) else "-"
+            perms += "X" if seg.get("isExecute", seg.get("executable")) else "-"
+            init = "init" if seg.get("isInitialized", seg.get("initialized")) else "uninit"
             table.add_row(
                 seg.get("name", "?"),
                 seg.get("start", "?"),
@@ -500,6 +546,136 @@ class TableFormatter(BaseFormatter):
             )
 
         return self._capture(table)
+
+    def format_callgraph(self, data: Dict[str, Any]) -> str:
+        """Format analysis callgraph as a readable tree with summary.
+
+        Supports both the current Java graph DTO (nodes/edges) and the tree DTO
+        used by newer upstream servers.
+        """
+        result = data.get("result", {})
+        if not isinstance(result, dict):
+            return self._capture("[yellow]No call graph data available[/yellow]")
+
+        if isinstance(result.get("nodes"), list):
+            nodes = result.get("nodes", [])
+            edges = result.get("edges", [])
+            root_name = result.get("rootFunction") or result.get("root") or "?"
+            root_addr = result.get("rootAddress") or result.get("root_address") or ""
+            depth = result.get("max_depth", result.get("depth"))
+
+            table = Table(
+                title=(f"Call Graph for {root_name} ({root_addr})"
+                       + (f" depth={depth}" if depth is not None else "")),
+                show_lines=False
+            )
+            table.add_column("Address", style="cyan", no_wrap=True)
+            table.add_column("Name", style="green")
+            table.add_column("Depth", style="yellow", justify="right")
+
+            for node in nodes[:200]:
+                if not isinstance(node, dict):
+                    continue
+                table.add_row(
+                    str(node.get("address", "?")),
+                    str(node.get("name", "?")),
+                    str(node.get("depth", ""))
+                )
+
+            table.caption = f"{len(nodes)} nodes, {len(edges)} edges"
+            if len(nodes) > 200:
+                table.caption += f"; showing first 200 nodes"
+
+            return self._capture(table)
+
+        if not isinstance(result.get("root"), dict):
+            return self._capture("[yellow]No call graph data available[/yellow]")
+
+        root = result["root"]
+        root_name = root.get("name", "?")
+        root_addr = root.get("address", "")
+        depth = result.get("depth")
+
+        summary = self._capture(
+            f"[cyan]Call Graph[/cyan] for {root_name} ({root_addr})"
+            + (f" depth={depth}" if depth is not None else "")
+        )
+
+        def build_tree(title: str, nodes, child_key: str) -> str:
+            tree = Tree(f"[cyan]{title}[/cyan]")
+
+            def add_nodes(parent, items, level=0, budget=None):
+                if budget is None:
+                    budget = [200]
+                if not isinstance(items, list):
+                    return
+                for node in items:
+                    if budget[0] <= 0:
+                        parent.add("[dim]...[/dim]")
+                        return
+                    if not isinstance(node, dict):
+                        continue
+                    fn = node.get("function", {})
+                    label = f"{fn.get('name', '?')} ({fn.get('address', '?')})"
+                    child = parent.add(f"[green]{label}[/green]")
+                    budget[0] -= 1
+                    add_nodes(child, node.get(child_key), level + 1, budget)
+
+            add_nodes(tree, nodes)
+            return self._capture(tree)
+
+        parts = [summary]
+        callers = result.get("callers")
+        if callers is not None:
+            parts.append(build_tree(f"Callers ({len(callers)})", callers, "callers")
+                         if callers else self._capture("[yellow]No callers[/yellow]"))
+        callees = result.get("callees")
+        if callees is not None:
+            parts.append(build_tree(f"Callees ({len(callees)})", callees, "callees")
+                         if callees else self._capture("[yellow]No callees[/yellow]"))
+
+        return "\n".join(parts)
+
+    def format_dataflow(self, data: Dict[str, Any]) -> str:
+        """Format analysis dataflow output."""
+        result = data.get("result", {})
+        if not isinstance(result, dict):
+            return self._capture("[yellow]No data flow data available[/yellow]")
+
+        steps = result.get("steps", [])
+        if not isinstance(steps, list):
+            steps = []
+
+        table = Table(title="Data Flow", show_lines=False)
+        table.add_column("Step", style="cyan", justify="right")
+        table.add_column("Address", style="green", no_wrap=True)
+        table.add_column("Instruction", style="white", overflow="fold")
+        table.add_column("Function", style="dim")
+        table.add_column("Refs", style="yellow", justify="right")
+
+        for i, step in enumerate(steps, start=1):
+            if not isinstance(step, dict):
+                continue
+            # Server steps carry instruction text + containing function + references.
+            table.add_row(
+                str(i),
+                str(step.get("address", step.get("to", step.get("from", "?")))),
+                str(step.get("instruction", step.get("description", step.get("label", "")))),
+                str(step.get("function", "")),
+                str(step.get("reference_count", len(step.get("references", []))))
+            )
+
+        header = []
+        for key in ("start_address", "address", "direction", "max_steps", "truncated"):
+            if key in result:
+                header.append(f"[cyan]{key}:[/cyan] {result.get(key)}")
+
+        if not table.rows:
+            return self._capture("\n".join(header) if header else "[yellow]No data flow steps found[/yellow]")
+
+        header_text = self._capture("\n".join(header)) if header else ""
+        body = self._capture(table)
+        return f"{header_text}\n{body}".strip()
 
     def format_error(self, error: Exception) -> str:
         """Format error message."""

@@ -39,8 +39,9 @@ public class AnalysisEndpoints extends AbstractEndpoint {
         server.createContext("/analysis/status", this::handleAnalysisStatus);
         server.createContext("/analysis/run", this::handleAnalysisRun);
 
-        // NOTE: The callgraph endpoint is now registered in ProgramEndpoints
-        // This comment is to avoid confusion during future maintenance
+        // NOTE: Direct /analysis/callgraph and /analysis/dataflow endpoints are
+        // registered in ProgramEndpoints to keep their nested /programs paths and
+        // top-level compatibility routes handled by the same implementation.
     }
 
     /**
@@ -131,4 +132,5 @@ public class AnalysisEndpoints extends AbstractEndpoint {
             sendErrorResponse(exchange, 500, "Internal server error: " + e.getMessage());
         }
     }
+
 }

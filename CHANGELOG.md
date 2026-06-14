@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-06-12
+
+### Changed
+- **Upstream Sync**: Merged three upstream bridge/CLI fixes from `starsong-consulting/GhydraMCP`.
+- **Bridge/CLI compatibility**: Preserved current Java `nodes`/`edges` callgraph DTO support while accepting newer tree-shaped callgraph responses.
+- **Pagination metadata**: `functions_list` now exposes both legacy top-level `size`/`offset`/`limit` and nested `meta` pagination fields.
+
+### Fixed
+- **Plugin startup**: Removed duplicate `/analysis/dataflow` HTTP context registration that caused `GhydraMCPPlugin` construction to fail in Ghidra.
+- **CLI output**: Fixed memory table formatting to avoid rendering addresses as `0x0x...`.
+- **Analysis status output**: Added clearer table formatting for analysis status responses.
+
+## [2.4.0] - 2026-06-05
+
+### Added
+- **Upstream Sync**: Merged changes from starsong-consulting/GhydraMCP (16 commits). New features:
+  - `functions_get_containing`, `functions_get_next`, `functions_get_prev` — function navigation by address
+  - `functions_update_variable` — alternative variable update endpoint
+  - `comments_get` — get comment at address
+  - `projects_list`, `projects_get` — project enumeration
+  - `programs_list`, `programs_get` — program lifecycle management
+  - `datatypes_create_struct`, `datatypes_create_enum`, `datatypes_create_union` — create datatypes programmatically
+  - `functions_list` — `addr_min`/`addr_max` address range filtering
+  - `memory_read` — `segment` parameter for overlay-aware reads
+  - `structs_create` — `size` parameter
+- **Java**: New `DataFlowUtil.java` utility, `GhidraSwing.java` EDT helper
+- **CLI**: New commands — `functions get-containing`, `functions get-next`, `functions get-prev`, `functions update-variable`, `comments get`, `datatypes create-struct`, `datatypes create-enum`, `datatypes create-union`, `project list-projects`, `project get-project`, `project list-programs`, `project get-program`
+
+### Changed
+- **Java endpoints**: All endpoints now use `GhidraSwing.runRead()` for EDT-safe DB iterator reads
+- **DataEndpoints**: Major refactor — fast-path address lookups, exact-name symbol lookup, per-item `matchesDataListFilters`
+- **FunctionEndpoints**: Uses `buildFunctionListEntry` for consistent output, proper `Pattern.find()` for regex, `GhidraSwing` wrappers
+- **ProgramEndpoints**: `analyzeReferenceFlow` via `DataFlowUtil`, `GhidraSwing`-wrapped callgraph/xrefs
+- Preserved FQN-based (`getName(true)`) filtering across all function and data endpoints
+
+### Fixed
+- **Locked buffer crashes**: DB-iterator reads marshaled onto EDT via `GhidraSwing`
+- **Decompiler EDT crash**: `handleFunctionVariables` fallback no longer runs decompiler on EDT
+- **Disassembly format**: Handles list-shaped disassembly result in `format_disassembly`
+- **CLI decompilation output**: Table formatter reads from `decompilation` field
+- **Hex/decimal param parsing**: All integer params accept hex and decimal
+
 ## [2.3.0] - 2025-05-14
 
 ### Added
@@ -146,11 +188,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Initial project setup
 - Basic MCP bridge functionality
 
-[unreleased]: https://github.com/starsong-consulting/GhydraMCP/compare/v2.3.0...HEAD
-[2.3.0]: https://github.com/starsong-consulting/GhydraMCP/compare/v2.0.0...v2.3.0
-[2.0.0]: https://github.com/starsong-consulting/GhydraMCP/compare/v1.4.0...v2.0.0
-[1.4.0]: https://github.com/starsong-consulting/GhydraMCP/compare/v1.3.0...v1.4.0
-[1.3.0]: https://github.com/starsong-consulting/GhydraMCP/compare/v1.2...v1.3.0
-[1.2]: https://github.com/starsong-consulting/GhydraMCP/compare/v1.1...v1.2
-[1.1]: https://github.com/starsong-consulting/GhydraMCP/compare/1.0...v1.1
-[1.0]: https://github.com/starsong-consulting/GhydraMCP/releases/tag/1.0
+[unreleased]: https://github.com/TeskesLab/GhydraMCP/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/TeskesLab/GhydraMCP/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/TeskesLab/GhydraMCP/compare/v2.3.0...v2.4.0
+[2.3.0]: https://github.com/TeskesLab/GhydraMCP/compare/v2.0.0...v2.3.0
+[2.0.0]: https://github.com/TeskesLab/GhydraMCP/compare/v1.4.0...v2.0.0
+[1.4.0]: https://github.com/TeskesLab/GhydraMCP/compare/v1.3.0...v1.4.0
+[1.3.0]: https://github.com/TeskesLab/GhydraMCP/compare/v1.2...v1.3.0
+[1.2]: https://github.com/TeskesLab/GhydraMCP/compare/v1.1...v1.2
+[1.1]: https://github.com/TeskesLab/GhydraMCP/compare/1.0...v1.1
+[1.0]: https://github.com/TeskesLab/GhydraMCP/releases/tag/1.0

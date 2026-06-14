@@ -11,8 +11,8 @@ GhydraMCP is a bridge between [Ghidra](https://ghidra-sre.org/) and AI assistant
 - Each open CodeBrowser gets its own HTTP server instance on ports 8192-8447 (256 port range)
 - First CodeBrowser gets port 8192, second 8193, etc.
 - The Python bridge auto-discovers running instances on startup
-- ~58 MCP tools organized into namespaces: `instances_*`, `functions_*`, `data_*`, `structs_*`, `memory_*`, `xrefs_*`, `analysis_*`, `classes_*`, `symbols_*`, `segments_*`, `namespaces_*`, `variables_*`, `datatypes_*`, `scalars_*`, `project_*`, `comments_*`, `script_*`
-- CLI tool (`ghydra/`) provides standalone terminal access — human-readable tables + `--json` mode for scripting, 19 command groups, 57 subcommands
+- ~71 MCP tools organized into namespaces: `instances_*`, `functions_*`, `data_*`, `structs_*`, `memory_*`, `xrefs_*`, `analysis_*`, `classes_*`, `symbols_*`, `segments_*`, `namespaces_*`, `variables_*`, `datatypes_*`, `scalars_*`, `project_*`, `comments_*`, `script_*`
+- CLI tool (`ghydra/`) provides standalone terminal access — human-readable tables + `--json` mode for scripting, 19 command groups, 64 subcommands
 
 ## Code Layout
 
@@ -60,8 +60,8 @@ mvn clean package -P complete-only # Build only the complete package
 ```
 
 Artifacts in `target/`:
-- `GhydraMCP-<version>.zip` — Ghidra plugin only
-- `GhydraMCP-Complete-<version>.zip` — Plugin + Python bridge combined
+- `GhydraMCP-v<version>.zip` — Ghidra plugin only
+- `GhydraMCP-Complete-v<version>.zip` — Plugin + Python bridge combined
 
 ### Python CLI
 ```bash
